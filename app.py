@@ -19,7 +19,7 @@ from scenarios import (
 )
 
 APP_DIR = Path(__file__).resolve().parent
-MODEL_PATH = APP_DIR / "model" / "mansion_xgb_interaction_bundle_v5.joblib"
+MODEL_PATH = APP_DIR / "mansion_xgb_interaction_bundle_v5.joblib"
 
 
 @st.cache_resource

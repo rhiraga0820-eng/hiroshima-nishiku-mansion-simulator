@@ -3,88 +3,92 @@ from __future__ import annotations
 import pandas as pd
 
 
-def normalize_scenario_table(
-    table: pd.DataFrame,
-    start_col: str,
-    end_col: str,
-    value_col: str,
+def calculate_monthly_payment(
+    principal_yen: float,
+    annual_rate_percent: float,
+    term_months: int,
+) -> float:
+    if principal_yen <= 0 or term_months <= 0:
+        return 0.0
+
+    monthly_rate = annual_rate_percent / 100 / 12
+
+    if monthly_rate == 0:
+        return principal_yen / term_months
+
+    factor = (1 + monthly_rate) ** term_months
+
+    return (
+        principal_yen
+        * monthly_rate
+        * factor
+        / (factor - 1)
+    )
+
+
+def build_annual_loan_schedule(
+    principal_yen: float,
+    annual_rate_percent: float,
+    term_years: int,
     forecast_years: int,
-) -> list[dict]:
-    if table is None or table.empty:
-        return []
+    bonus_payment_per_time_yen: float = 0.0,
+    bonus_payments_per_year: int = 0,
+) -> pd.DataFrame:
+    principal_yen = max(float(principal_yen), 0.0)
+    term_months = int(term_years * 12)
+    monthly_rate = annual_rate_percent / 100 / 12
 
-    scenarios = []
+    payment = calculate_monthly_payment(
+        principal_yen=principal_yen,
+        annual_rate_percent=annual_rate_percent,
+        term_months=term_months,
+    )
 
-    clean = table.dropna(subset=[start_col, end_col, value_col])
+    if bonus_payments_per_year == 1:
+        bonus_months = {12}
+    elif bonus_payments_per_year == 2:
+        bonus_months = {6, 12}
+    else:
+        bonus_months = set()
 
-    for _, row in clean.iterrows():
-        start_year = int(row[start_col])
-        end_year = int(row[end_col])
-        value = float(row[value_col])
+    balance = principal_yen
 
-        if start_year < 1:
-            raise ValueError("開始年は1以上にしてください。")
-        if end_year < start_year:
-            raise ValueError("終了年は開始年以上にしてください。")
-        if start_year > forecast_years:
-            continue
+    rows = [
+        {
+            "経過年": 0,
+            "ローン残債（円）": balance,
+        }
+    ]
 
-        scenarios.append(
-            {
-                "start_year": start_year,
-                "end_year": min(end_year, forecast_years),
-                "value": value,
-            }
-        )
+    total_simulation_months = int(forecast_years * 12)
 
-    scenarios.sort(key=lambda x: (x["start_year"], x["end_year"]))
+    for month in range(1, total_simulation_months + 1):
+        if month > term_months or balance <= 0:
+            balance = 0.0
 
-    for previous, current in zip(scenarios, scenarios[1:]):
-        if current["start_year"] <= previous["end_year"]:
-            raise ValueError("シナリオ期間が重複しています。")
+        else:
+            interest = balance * monthly_rate
+            principal_payment = max(payment - interest, 0.0)
+            balance = max(balance - principal_payment, 0.0)
 
-    return scenarios
+            month_in_year = ((month - 1) % 12) + 1
 
+            if (
+                month_in_year in bonus_months
+                and bonus_payment_per_time_yen > 0
+                and balance > 0
+            ):
+                balance = max(
+                    balance - float(bonus_payment_per_time_yen),
+                    0.0,
+                )
 
-def _get_value(year: int, scenarios: list[dict], default: float = 0.0) -> float:
-    for scenario in scenarios:
-        if scenario["start_year"] <= year <= scenario["end_year"]:
-            return float(scenario["value"])
-    return default
+        if month % 12 == 0:
+            rows.append(
+                {
+                    "経過年": month // 12,
+                    "ローン残債（円）": balance,
+                }
+            )
 
-
-def build_policy_rate_series(
-    current_value: float,
-    forecast_years: int,
-    scenarios: list[dict],
-    floor: float = -1.0,
-    ceiling: float = 10.0,
-) -> list[float]:
-    values = [float(current_value)]
-
-    for year in range(1, forecast_years + 1):
-        annual_change = _get_value(year, scenarios, 0.0)
-        next_value = values[-1] + annual_change
-        next_value = min(max(next_value, floor), ceiling)
-        values.append(float(next_value))
-
-    return values
-
-
-def build_cpi_series(
-    current_value: float,
-    forecast_years: int,
-    scenarios: list[dict],
-) -> list[float]:
-    values = [float(current_value)]
-
-    for year in range(1, forecast_years + 1):
-        annual_growth = _get_value(year, scenarios, 0.0)
-        next_value = values[-1] * (1 + annual_growth / 100)
-
-        if next_value <= 0:
-            raise ValueError("CPIが0以下になるシナリオは設定できません。")
-
-        values.append(float(next_value))
-
-    return values
+    return pd.DataFrame(rows)

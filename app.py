@@ -6,18 +6,17 @@ import joblib
 import pandas as pd
 import streamlit as st
 
-from src.loan import build_annual_loan_schedule
-from src.prediction import (
+from loan import build_annual_loan_schedule
+from prediction import (
     build_model_input,
     check_training_range,
     predict_price,
 )
-from src.scenarios import (
+from scenarios import (
     build_cpi_series,
     build_policy_rate_series,
     normalize_scenario_table,
 )
-
 
 APP_DIR = Path(__file__).resolve().parent
 MODEL_PATH = APP_DIR / "model" / "mansion_xgb_interaction_bundle_v5.joblib"
